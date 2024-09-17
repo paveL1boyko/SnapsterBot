@@ -1,8 +1,9 @@
 import asyncio
+import random
 from urllib.parse import unquote, quote
 
 import aiohttp
-import json
+import pytz
 from aiocfscrape import CloudflareScraper
 from aiohttp_proxy import ProxyConnector
 from better_proxy import Proxy
@@ -14,13 +15,14 @@ from pyrogram.errors import (
     FloodWait,
 )
 from pyrogram.raw.functions.messages import RequestWebView
-from datetime import datetime, timedelta
+from datetime import datetime
 from .agents import generate_random_user_agent
 
 from bot.utils import logger
 from bot.exceptions import InvalidSession
 from .headers import headers
 from bot.config import settings
+from .models import UserData
 
 
 class Tapper:
@@ -122,49 +124,15 @@ class Tapper:
             )
             await asyncio.sleep(delay=3)
 
-    async def get_stats(self, http_client: aiohttp.ClientSession):
-        response_text = ""
+    async def get_stats(self, http_client: aiohttp.ClientSession) -> UserData:
         try:
             async with http_client.get(
                 url=f"https://prod.snapster.bot/api/user/getUserByTelegramId?telegramId={self.user_id}"
             ) as response:
-                response_text = await response.text()
-                if response_text:
-                    try:
-                        data = json.loads(response_text).get("data")
-                        last_claim = data.get("lastMiningBonusClaimDate")
-                        return last_claim
-                    except json.JSONDecodeError as error:
-                        escaped_error = (
-                            str(error).replace("<", "&lt;").replace(">", "&gt;")
-                        )
-                        logger.error(
-                            f"{self.session_name} | JSON decode error: {escaped_error}"
-                        )
-                        logger.error(f"{self.session_name} | Response: {response}")
-                        logger.error(
-                            f"{self.session_name} | headers: {http_client.headers}"
-                        )
-                        logger.error(
-                            f"{self.session_name} | Headers response: {response.headers}"
-                        )
-                        logger.error(
-                            f"{self.session_name} | Response text: {response_text.encode('unicode_escape')}"
-                        )
-                        return None, None
-                else:
-                    logger.error(f"{self.session_name} | Empty response received")
-                    return None, None
-        except Exception as error:
-            escaped_error = str(error).replace("<", "&lt;").replace(">", "&gt;")
-            logger.error(f"{self.session_name} | Error happened: {escaped_error}")
-            logger.error(
-                f"{self.session_name} | Response: {response_text.encode('unicode_escape')}"
-            )
-            logger.error(f"{self.session_name} | Headers: {response.headers}")
-            logger.error(f"{self.session_name} | headers: {http_client.headers}")
-            logger.error(f"{self.session_name} | Response: {response}")
-            return None, None
+                res_data = await response.json()
+                return UserData.model_validate(res_data["data"])
+        except Exception:
+            logger.exception(f"{self.session_name} | Stats error")
 
     async def daily_claim(self, http_client: aiohttp.ClientSession) -> bool:
         try:
@@ -173,9 +141,8 @@ class Tapper:
                 json={"telegramId": f"{self.user_id}"},
             ):
                 return True
-        except Exception as error:
-            escaped_error = str(error).replace("<", "&lt;").replace(">", "&gt;")
-            logger.error(f"{self.session_name} | Daily claim error: {escaped_error}")
+        except Exception:
+            logger.exception(f"{self.session_name} | Daily claim error")
             return False
 
     async def check_proxy(
@@ -220,20 +187,12 @@ class Tapper:
                     if not tg_web_data:
                         continue
 
-                    last_claim = await self.get_stats(http_client=http_client)
-                    if last_claim is None:
-                        logger.info(
-                            f"{self.session_name} | Bot is lagging, retrying..."
-                        )
-                        await asyncio.sleep(3)
-                        continue
-
-                    await asyncio.sleep(2)
-
-                    current_time = datetime.now()
-                    convert = datetime.strptime(last_claim, "%Y-%m-%dT%H:%M:%S.%fZ")
-                    convert += timedelta(hours=27)
-                    if current_time >= convert:
+                    user_data = await self.get_stats(http_client=http_client)
+                    now_utc = datetime.now(pytz.utc)
+                    await asyncio.sleep(random.uniform(2, 3))
+                    if (
+                        now_utc - user_data.lastMiningBonusClaimDate
+                    ).total_seconds() > settings.CLIME_TIME_DELTA:
                         status = await self.daily_claim(http_client=http_client)
                         if status is True:
                             logger.success(
