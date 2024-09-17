@@ -192,7 +192,7 @@ class Tapper:
                     await asyncio.sleep(random.uniform(2, 3))
                     if (
                         now_utc - user_data.lastMiningBonusClaimDate
-                    ).total_seconds() > settings.CLIME_TIME_DELTA:
+                    ).total_seconds() > self.get_clime_time():
                         status = await self.daily_claim(http_client=http_client)
                         if status is True:
                             logger.success(
@@ -214,6 +214,9 @@ class Tapper:
                         f"{self.session_name} | Unknown error: {escaped_error}"
                     )
                     await asyncio.sleep(delay=3)
+
+    def get_clime_time(self) -> float:
+        return random.uniform(settings.CLIME_TIME_DELTA, settings.CLIME_TIME_DELTA * 5)
 
 
 async def run_tapper(tg_client: Client, proxy: str | None):
