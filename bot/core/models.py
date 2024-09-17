@@ -19,7 +19,7 @@ class UserData(BaseModel):
     telegramId: str
     pointsCount: int
     referralCode: str
-    referralId: int
+    referralId: int | None
     lastReferralPointsClaimDate: datetime
     dailyBonusStreakCount: int
     lastDailyBonusClaimDate: Optional[datetime] = None
