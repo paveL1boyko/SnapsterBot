@@ -199,10 +199,13 @@ class Tapper:
                                 f"{self.session_name} | Daily claim successful"
                             )
                     else:
-                        logger.info(
-                            f"{self.session_name} | Can`t daily claim, going sleep 1 hour"
+                        sleep_time = random.uniform(
+                            settings.CLIME_TIME_DELTA, settings.CLIME_TIME_DELTA * 2
                         )
-                        await asyncio.sleep(delay=3600)
+                        logger.info(
+                            f"{self.session_name} | Can`t daily claim, going sleep {sleep_time} hour"
+                        )
+                        await asyncio.sleep(delay=sleep_time)
                     await asyncio.sleep(5)
 
                 except InvalidSession as error:
@@ -213,7 +216,7 @@ class Tapper:
                     logger.error(
                         f"{self.session_name} | Unknown error: {escaped_error}"
                     )
-                    await asyncio.sleep(delay=3)
+                    await asyncio.sleep(delay=random.uniform(50, 100))
 
     def get_clime_time(self) -> float:
         return random.uniform(settings.CLIME_TIME_DELTA, settings.CLIME_TIME_DELTA * 5)
