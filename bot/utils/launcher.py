@@ -1,17 +1,16 @@
-import os
-import glob
-import asyncio
 import argparse
+import asyncio
+import glob
+import os
 from itertools import cycle
 
-from pyrogram import Client
 from better_proxy import Proxy
+from pyrogram import Client
 
 from bot.config import settings
-from bot.utils import logger
-from bot.core.tapper import run_tapper
 from bot.core.registrator import register_sessions
-
+from bot.core.tapper import run_tapper
+from bot.utils import logger
 
 start_text = """
 
@@ -31,6 +30,7 @@ Select an action:
 """
 
 global tg_clients
+
 
 def get_session_names() -> list[str]:
     session_names = glob.glob("sessions/*.session")
@@ -68,7 +68,6 @@ async def get_tg_clients() -> list[Client]:
             api_id=settings.API_ID,
             api_hash=settings.API_HASH,
             workdir="sessions/",
-            plugins=dict(root="bot/plugins"),
         )
         for session_name in session_names
     ]

@@ -1,6 +1,6 @@
-from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel
 
 
 class CurrentLeague(BaseModel):
@@ -22,12 +22,27 @@ class UserData(BaseModel):
     referralId: int | None
     lastReferralPointsClaimDate: datetime
     dailyBonusStreakCount: int
-    lastDailyBonusClaimDate: Optional[datetime] = None
+    lastDailyBonusClaimDate: datetime | None = None
     lastMiningBonusClaimDate: datetime
-    lastDailyCheckInClaimDate: Optional[datetime] = None
+    lastDailyCheckInClaimDate: datetime | None = None
     miningBoostCount: int
-    walletAddress: Optional[str] = None
+    walletAddress: str | None = None
     isWalletConnected: bool
     isWalletSigned: bool
     isWalletSignLoading: bool
-    currentLeague: CurrentLeague
+    # currentLeague: CurrentLeague
+
+
+class QuestModel(BaseModel):
+    id: int
+    questId: int
+    title: str
+    subtitle: str
+    iconName: str
+    bonusPoints: int
+    category: str
+    type: str
+    link: str | None
+    referralThreshold: int | None = None
+    miningBoostThreshold: int | None = None
+    status: str

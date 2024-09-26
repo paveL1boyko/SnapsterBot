@@ -1,28 +1,34 @@
 import asyncio
 import random
-from urllib.parse import unquote, quote
+from datetime import datetime
+from urllib.parse import quote, unquote
 
 import aiohttp
 import pytz
-from aiocfscrape import CloudflareScraper
+from aiohttp import ClientSession
 from aiohttp_proxy import ProxyConnector
 from better_proxy import Proxy
-from pyrogram import Client
+from pydantic import TypeAdapter
+from pyrogram import Client, errors
 from pyrogram.errors import (
-    Unauthorized,
-    UserDeactivated,
     AuthKeyUnregistered,
     FloodWait,
+    RPCError,
+    Unauthorized,
+    UserAlreadyParticipant,
+    UserDeactivated,
 )
+from pyrogram.raw.functions.account import UpdateNotifySettings
 from pyrogram.raw.functions.messages import RequestWebView
-from datetime import datetime
-from .agents import generate_random_user_agent
+from pyrogram.raw.types import InputNotifyPeer, InputPeerNotifySettings
 
-from bot.utils import logger
-from bot.exceptions import InvalidSession
-from .headers import headers
 from bot.config import settings
-from .models import UserData
+from bot.exceptions import InvalidSession
+from bot.utils import logger
+
+from .agents import generate_random_user_agent
+from .headers import headers
+from .models import QuestModel, UserData
 
 
 class Tapper:
@@ -56,10 +62,10 @@ class Tapper:
                     start_command_found = False
 
                     async for message in self.tg_client.get_chat_history(
-                        "snapster_bot"
+                            "snapster_bot"
                     ):
                         if (message.text and message.text.startswith("/start")) or (
-                            message.caption and message.caption.startswith("/start")
+                                message.caption and message.caption.startswith("/start")
                         ):
                             start_command_found = True
                             break
@@ -127,26 +133,60 @@ class Tapper:
     async def get_stats(self, http_client: aiohttp.ClientSession) -> UserData:
         try:
             async with http_client.get(
-                url=f"https://prod.snapster.bot/api/user/getUserByTelegramId?telegramId={self.user_id}"
+                    url=f"https://prod.snapster.bot/api/user/getUserByTelegramId?telegramId={self.user_id}"
             ) as response:
                 res_data = await response.json()
                 return UserData.model_validate(res_data["data"])
         except Exception:
             logger.exception(f"{self.session_name} | Stats error")
 
+    async def get_quest(self, http_client: aiohttp.ClientSession) -> list[QuestModel]:
+        try:
+            async with http_client.get(
+                    url=f"https://prod.snapster.bot//api/quest/getQuests?telegramId={self.user_id}"
+            ) as response:
+                res_data = await response.json()
+                return TypeAdapter(list[QuestModel]).validate_python(res_data["data"])
+        except Exception:
+            logger.exception(f"{self.session_name} | Stats error")
+
     async def daily_claim(self, http_client: aiohttp.ClientSession) -> bool:
         try:
             async with http_client.post(
-                url="https://prod.snapster.bot/api/user/claimMiningBonus",
-                json={"telegramId": f"{self.user_id}"},
+                    url="https://prod.snapster.bot/api/user/claimMiningBonus",
+                    json={"telegramId": f"{self.user_id}"},
             ):
                 return True
         except Exception:
             logger.exception(f"{self.session_name} | Daily claim error")
             return False
 
+    async def quest_claim(self, http_client: aiohttp.ClientSession, quest_id: int) -> bool:
+        try:
+            async with http_client.post(
+                    url="https://prod.snapster.bot/api/quest/claimQuestBonus",
+                    json={"telegramId": f"{self.user_id}", "questId": quest_id},
+            ) as r:
+                logger.info(f"quest_claim {await r.json()}")
+                return True
+        except Exception:
+            logger.exception(f"{self.session_name} | Quest claim error")
+            return False
+
+    async def quest_earn(self, http_client: aiohttp.ClientSession, quest_id: int) -> bool:
+        try:
+            async with http_client.post(
+                    url="https://prod.snapster.bot/api/quest/startQuest",
+                    json={"telegramId": f"{self.user_id}", "questId": quest_id},
+            ) as r:
+                logger.info(f"quest_earn {await r.json()}")
+                return True
+        except Exception:
+            logger.exception(f"{self.session_name} | Quest claim error")
+            return False
+
     async def check_proxy(
-        self, http_client: aiohttp.ClientSession, proxy: Proxy
+            self, http_client: aiohttp.ClientSession, proxy: Proxy
     ) -> None:
         try:
             response = await http_client.get(
@@ -160,11 +200,54 @@ class Tapper:
                 f"{self.session_name} | Proxy: {proxy} | Error: {escaped_error}"
             )
 
+    async def join_and_archive_channel(self, channel_name: str) -> None:
+        try:
+            async with self.tg_client:
+                try:
+                    chat = await self.tg_client.join_chat(channel_name)
+                    logger.info(
+                        f"{self.session_name} | Successfully joined to  <g>{chat.title}</g> successfully archived"
+                    )
+                except UserAlreadyParticipant:
+                    logger.info(
+                        f"{self.session_name} | Chat <y>{channel_name}</y> already joined"
+                    )
+                except RPCError as e:
+                    logger.error(
+                        f"{self.session_name} | Channel <y>{channel_name}</y> not found, {e}"
+                    )
+                    raise
+                else:
+                    await asyncio.sleep(random.uniform(2, 3))
+                    peer = await self.tg_client.resolve_peer(chat.id)
+
+                    await self.tg_client.invoke(
+                        UpdateNotifySettings(
+                            peer=InputNotifyPeer(peer=peer),
+                            settings=InputPeerNotifySettings(mute_until=2147483647),
+                        )
+                    )
+                    logger.info(
+                        f"{self.session_name} | Successfully muted chat <g>{chat.title}</g> for channel <y>{channel_name}</y>"
+                    )
+                    await asyncio.sleep(random.uniform(2, 3))
+                    await self.tg_client.archive_chats(chat_ids=[chat.id])
+                    logger.info(
+                        f"{self.session_name} | Channel <g>{chat.title}</g> successfully archived for channel <y>{channel_name}</y>"
+                    )
+
+        except errors.FloodWait as e:
+            logger.error(
+                f"{self.session_name} | Waiting {e.value} seconds before the next attempt."
+            )
+            await asyncio.sleep(e.value)
+            raise
+
     async def run(self, proxy: str | None) -> None:
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
-        async with CloudflareScraper(
-            headers=headers, connector=proxy_conn
+        async with ClientSession(
+                headers=headers, connector=proxy_conn
         ) as http_client:
             if proxy:
                 await self.check_proxy(http_client=http_client, proxy=proxy)
@@ -188,10 +271,11 @@ class Tapper:
                         continue
 
                     user_data = await self.get_stats(http_client=http_client)
+                    # await self.execute_quests(http_client)
                     now_utc = datetime.now(pytz.utc)
                     await asyncio.sleep(random.uniform(2, 3))
                     if (
-                        now_utc - user_data.lastMiningBonusClaimDate
+                            now_utc - user_data.lastMiningBonusClaimDate
                     ).total_seconds() > self.get_clime_time():
                         status = await self.daily_claim(http_client=http_client)
                         if status is True:
@@ -217,6 +301,30 @@ class Tapper:
                         f"{self.session_name} | Unknown error: {escaped_error}"
                     )
                     await asyncio.sleep(delay=random.uniform(50, 100))
+
+    async def execute_quests(self, http_client):
+        quest = await self.get_quest(http_client)
+        for q in quest:
+            if q.type == "REFERRAL" or q.status == "CLAIMED":
+                continue
+            if q.status == "EARN":
+                await self.quest_earn(http_client, q.id)
+            if q.link and q.link.startswith("https://t.me/+"):
+                await self.join_and_archive_channel(
+                    channel_name=q.link
+                )
+                await asyncio.sleep(random.uniform(1, 2))
+                await self.quest_claim(http_client, q.id)
+            try:
+                await self.quest_claim(http_client, q.id)
+                logger.info(
+                    f"{self.session_name} | Quest <g>{q.title}</g> successfully  <y>+{q.bonusPoints}</y>"
+                )
+            except Exception as error:
+                escaped_error = str(error).replace("<", "&lt;").replace(">", "&gt;")
+                logger.error(
+                    f"{self.session_name} | Quest <g>{q.title}</g> failed, {escaped_error}"
+                )
 
     def get_clime_time(self) -> float:
         return random.uniform(settings.CLIME_TIME_DELTA, settings.CLIME_TIME_DELTA * 5)
