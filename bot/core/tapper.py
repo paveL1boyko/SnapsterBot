@@ -1,7 +1,8 @@
 import asyncio
+import json
 import random
 from datetime import datetime
-from urllib.parse import quote, unquote
+from urllib.parse import quote, parse_qs
 
 import aiohttp
 import pytz
@@ -62,10 +63,10 @@ class Tapper:
                     start_command_found = False
 
                     async for message in self.tg_client.get_chat_history(
-                            "snapster_bot"
+                        "snapster_bot"
                     ):
                         if (message.text and message.text.startswith("/start")) or (
-                                message.caption and message.caption.startswith("/start")
+                            message.caption and message.caption.startswith("/start")
                         ):
                             start_command_found = True
                             break
@@ -104,15 +105,7 @@ class Tapper:
                 )
             )
 
-            auth_url = web_view.url
-            tg_web_data = unquote(
-                string=unquote(
-                    string=auth_url.split("tgWebAppData=", maxsplit=1)[1].split(
-                        "&tgWebAppVersion", maxsplit=1
-                    )[0]
-                )
-            )
-
+            tg_web_data = parse_qs(web_view.url.split("#")[1]).get("tgWebAppData")[0]
             self.user_id = (await self.tg_client.get_me()).id
 
             if with_tg is False:
@@ -132,8 +125,9 @@ class Tapper:
 
     async def get_stats(self, http_client: aiohttp.ClientSession) -> UserData:
         try:
-            async with http_client.get(
-                    url=f"https://prod.snapster.bot/api/user/getUserByTelegramId?telegramId={self.user_id}"
+            async with http_client.post(
+                url="https://prod.snapster.bot/api/user/getUserByTelegramId",
+                data=json.dumps({"telegramId": str(self.user_id)}),
             ) as response:
                 res_data = await response.json()
                 return UserData.model_validate(res_data["data"])
@@ -143,7 +137,7 @@ class Tapper:
     async def get_quest(self, http_client: aiohttp.ClientSession) -> list[QuestModel]:
         try:
             async with http_client.get(
-                    url=f"https://prod.snapster.bot//api/quest/getQuests?telegramId={self.user_id}"
+                url=f"https://prod.snapster.bot//api/quest/getQuests?telegramId={self.user_id}"
             ) as response:
                 res_data = await response.json()
                 return TypeAdapter(list[QuestModel]).validate_python(res_data["data"])
@@ -153,19 +147,21 @@ class Tapper:
     async def daily_claim(self, http_client: aiohttp.ClientSession) -> bool:
         try:
             async with http_client.post(
-                    url="https://prod.snapster.bot/api/user/claimMiningBonus",
-                    json={"telegramId": f"{self.user_id}"},
+                url="https://prod.snapster.bot/api/user/claimMiningBonus",
+                json={"telegramId": f"{self.user_id}"},
             ):
                 return True
         except Exception:
             logger.exception(f"{self.session_name} | Daily claim error")
             return False
 
-    async def quest_claim(self, http_client: aiohttp.ClientSession, quest_id: int) -> bool:
+    async def quest_claim(
+        self, http_client: aiohttp.ClientSession, quest_id: int
+    ) -> bool:
         try:
             async with http_client.post(
-                    url="https://prod.snapster.bot/api/quest/claimQuestBonus",
-                    json={"telegramId": f"{self.user_id}", "questId": quest_id},
+                url="https://prod.snapster.bot/api/quest/claimQuestBonus",
+                json={"telegramId": f"{self.user_id}", "questId": quest_id},
             ) as r:
                 logger.info(f"quest_claim {await r.json()}")
                 return True
@@ -173,11 +169,13 @@ class Tapper:
             logger.exception(f"{self.session_name} | Quest claim error")
             return False
 
-    async def quest_earn(self, http_client: aiohttp.ClientSession, quest_id: int) -> bool:
+    async def quest_earn(
+        self, http_client: aiohttp.ClientSession, quest_id: int
+    ) -> bool:
         try:
             async with http_client.post(
-                    url="https://prod.snapster.bot/api/quest/startQuest",
-                    json={"telegramId": f"{self.user_id}", "questId": quest_id},
+                url="https://prod.snapster.bot/api/quest/startQuest",
+                json={"telegramId": f"{self.user_id}", "questId": quest_id},
             ) as r:
                 logger.info(f"quest_earn {await r.json()}")
                 return True
@@ -186,7 +184,7 @@ class Tapper:
             return False
 
     async def check_proxy(
-            self, http_client: aiohttp.ClientSession, proxy: Proxy
+        self, http_client: aiohttp.ClientSession, proxy: Proxy
     ) -> None:
         try:
             response = await http_client.get(
@@ -246,23 +244,21 @@ class Tapper:
     async def run(self, proxy: str | None) -> None:
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
-        async with ClientSession(
-                headers=headers, connector=proxy_conn
-        ) as http_client:
+        async with ClientSession(headers=headers, connector=proxy_conn) as http_client:
             if proxy:
                 await self.check_proxy(http_client=http_client, proxy=proxy)
             tg_web_data = await self.get_tg_web_data(proxy=proxy)
             while True:
                 try:
-                    tg_web_data_parts = tg_web_data.split("&")
-                    query_id = tg_web_data_parts[0].split("=")[1]
-                    user_data = tg_web_data_parts[1].split("=")[1]
-                    auth_date = tg_web_data_parts[2].split("=")[1]
-                    hash_value = tg_web_data_parts[3].split("=")[1]
-
-                    user_data_encoded = quote(user_data)
-                    init_data = f"query_id={query_id}&user={user_data_encoded}&auth_date={auth_date}&hash={hash_value}"
-                    http_client.headers["Telegram-Data"] = f"{init_data}"
+                    # tg_web_data_parts = tg_web_data.split("&")
+                    # query_id = tg_web_data_parts[0].split("=")[1]
+                    # user_data = tg_web_data_parts[1].split("=")[1]
+                    # auth_date = tg_web_data_parts[2].split("=")[1]
+                    # hash_value = tg_web_data_parts[3].split("=")[1]
+                    #
+                    # user_data_encoded = quote(user_data)
+                    # init_data = f"query_id={query_id}&user={user_data_encoded}&auth_date={auth_date}&hash={hash_value}"
+                    http_client.headers["Telegram-Data"] = tg_web_data
                     http_client.headers["User-Agent"] = generate_random_user_agent(
                         device_type="android", browser_type="chrome"
                     )
@@ -275,7 +271,7 @@ class Tapper:
                     now_utc = datetime.now(pytz.utc)
                     await asyncio.sleep(random.uniform(2, 3))
                     if (
-                            now_utc - user_data.lastMiningBonusClaimDate
+                        now_utc - user_data.lastMiningBonusClaimDate
                     ).total_seconds() > self.get_clime_time():
                         status = await self.daily_claim(http_client=http_client)
                         if status is True:
@@ -310,9 +306,7 @@ class Tapper:
             if q.status == "EARN":
                 await self.quest_earn(http_client, q.id)
             if q.link and q.link.startswith("https://t.me/+"):
-                await self.join_and_archive_channel(
-                    channel_name=q.link
-                )
+                await self.join_and_archive_channel(channel_name=q.link)
                 await asyncio.sleep(random.uniform(1, 2))
                 await self.quest_claim(http_client, q.id)
             try:

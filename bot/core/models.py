@@ -8,7 +8,7 @@ class CurrentLeague(BaseModel):
     title: str
     requiredNumberOfPointsToAchieve: int
     bonusPoints: int
-    miningSpeed: int
+    miningSpeed: float
     iconName: str
     status: str
 
